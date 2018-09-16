@@ -1,213 +1,272 @@
 /*========================================================================*/
 
-/*		Compress v1.0 for Make Compress Coding			  */
+/*		Huffman Statistic Coding ---- File			  */
 
 /*========================================================================*/
 
 /*========================================================================*/
-#include	"huffman2.h"
-#include	"huffman3.h"
-#include	"line.h"
-
-#ifndef		_FILE_
-#include	"file.h"
+#ifndef	__COMPACT__
+#error	File Buffers must run in COMPACT mode.
 #endif
 
-#include	<stdio.h>
 
-#include	<stdlib.h>
+/*========================================================================*/
+#include	<dir.h>
+#include	<dos.h>
 
-#include	<ctype.h>
-#include	<string.h>
+#include	<alloc.h>
 
 #include	<io.h>
-#include	<conio.h>
+#include	<fcntl.h>
+#include	<sys\stat.h>
 
 
 /*========================================================================*/
+#define		_FILE_		0
+
 #ifndef		false
 #define		false		0
 #define		true		1
 typedef		int		bool;
 #endif
 
-#define		E_Format	1
-#define		E_FileNone	2
-#define		E_FileExist	3
-#define		E_NoCompress	4
-#define		E_Compressed	5
+#define		Block		0x8000		/* 32KB */
 
 
 /*========================================================================*/
-char		*_Version="Zwd\x10";
-char		*rfile,*wfile;
-char		*temp="Compress.Tmp";
-
-
-/*========================================================================*/
-bool	Error		(int p)
+typedef		struct
 {
-	switch (p)
-	{
-		case E_Format:
-			printf("\nUsage:\t\tCOMPRESS <command> <input file> <out file>\n");
-						/* stdio.h */
-			break;
-		case E_FileNone:
-			printf("\nError:\t\t[%s] isn't exist, COMPRESS can't work\n",rfile);
+	int		fp;
 
-			break;
-		case E_FileExist:
-			printf("\nError:\t\t[%s] is already exist, please input a new file\n",wfile);
+	long		len;
 
-			break;
-		case E_NoCompress:
-			printf("\nError:\t\t[%s] isn't compressed by COMPRESS v1.0\n",rfile);
+	char		*buff;
 
-			break;
-		case E_Compressed:
-			printf("\nError:\t\t[%s] is already compressed by COMPRESS v1.0\n",rfile);
-
-			break;
-		default:
-			break;
-	}
-
-	exit(false);				/* stdlib.h */
+	long		from;
+	int		seek;
 }
+File;
+
 
 /*========================================================================*/
-bool	Head		(bool b)
-{
-	long		l;
+bool	SearchFile	(char *file);
+bool	InitFile	(char *rf,char *wf);
+bool	ResetFile	(char *rf,char *wf);
 
-	if (!b)
-	{
-		l=ReadLong();			/* File.h */
+bool	ResetRfile	(char *rf);
+bool	Rseek		(long s);
+char	ReadByte	();
+long	ReadLong	();
 
-		if (l == *(long*)_Version)
-		{
-			l=ReadLong();		/* File.h */
+bool	ResetWfile	(char *wf);
+bool	Wseek		(long s);
+bool	WriteByte	(char ch);
+bool	WriteLong	(long l);
 
-			if (l>0)
-			{
-				Rfile.len=l;	/* File.h */
-				b=true;
-			}
-		}
-	}
-	else
-	{
-		WriteLong(*(long*)_Version);	/* File.h */
-		WriteLong(Rfile.len);		/* File.h */
-	}
+bool	FlushFile	();
+bool	CloseFile	(int fp);
+bool	DeleteFile	();
 
-	return b;
-}
 
 /*========================================================================*/
-bool	Compress	()			/* Bits */
+File		Rfile;
+File		Wfile;
+
+
+/*========================================================================*/
+bool	SearchFile	(char *file)
 {
-	InitFile(rfile,NULL);			/* alloc.h,File.h */
+	struct ffblk	fb;			/* dir.h */
 
-	if (Head(false))
-	{
-		DeleteFile();			/* File.h */
-
-		Error(E_Compressed);
-	}
-
-	Rseek(0);
-
-	ResetWfile(temp);
-	C_Line();
-	ResetWfile(NULL);
-	ResetRfile(temp);
-
-	ResetWfile(wfile);
-
-	Head(true);
-
-	C_Huffman();				/* Huffman2.h */
-
-	DeleteFile();				/* File.h */
+	if ( findfirst(file,&fb,FA_ARCH) == -1)	/* dir.h,dos.h */
+		return false;
 
 	return true;
 }
 
 /*========================================================================*/
-bool	Extract		()			/* Tree */
+bool	InitFile	(char *rf,char *wf)
 {
-	InitFile(rfile,NULL);			/* alloc.h,File.h */
+	do	Rfile.buff=malloc(Block);	/* alloc.h */
+	while (!Rfile.buff);
 
-	if (!Head(false))
-	{
-		DeleteFile();			/* File.h */
+	do	Wfile.buff=malloc(Block);	/* alloc.h */
+	while (!Wfile.buff);
 
-		Error(E_NoCompress);
-	}
+	Rfile.fp=Wfile.fp=0;
 
-	ResetWfile(wfile);
-
-	E_Huffman();				/* Huffman3.h */
-
-	ResetWfile(NULL);
-	ResetWfile(temp);
-	ResetRfile(wfile);
-	E_Line();
-
-	DeleteFile();				/* File.h */
+	ResetFile(rf,wf);
 
 	return true;
 }
 
 /*========================================================================*/
-bool	main		(int argc,char *argv[])
+bool	ResetFile	(char *rf,char *wf)
+{
+	ResetRfile(rf);
+	ResetWfile(wf);
+
+	return true;
+}
+
+/*========================================================================*/
+bool	ResetRfile	(char *rf)
+{
+	CloseFile(Rfile.fp);
+
+	Rfile.fp=open(rf,O_RDONLY|O_BINARY);	/* io.h,fcntl.h */
+
+	if (Rfile.fp==-1)
+	{
+		Rfile.fp=0;
+
+		return false;
+	}
+
+	Rfile.len=filelength(Rfile.fp);		/* io.h */
+	Rseek(0L);
+
+	return true;
+}
+
+/*========================================================================*/
+bool	Rseek		(long s)
+{
+	Rfile.from=s;
+	Rfile.seek=-1;
+
+	return true;
+}
+
+/*========================================================================*/
+char	ReadByte	()
 {
 	char		ch;
 
-	printf("\nCOMPRESS v1.0\tCopyright(c) Zhang Weidong, 1999-2000, All Rights Reserved.\n");
-
-	if ( argc!=4)
-		Error(E_Format);
-
-	ch=toupper(argv[1][0]);			/* ctype.h */
-	if (ch!='A' && ch!='E')
-		Error(E_Format);
-
-	rfile=strupr(argv[2]);			/* string.h */
-	if (!SearchFile(rfile))			/* File.h */
-		Error(E_FileNone);
-
-	wfile=strupr(argv[3]);			/* string.h */
-	if (SearchFile(wfile))			/* File.h */
-		Error(E_FileExist);
-
-	while (SearchFile(temp))		/* File.h */
-		temp[0]++;
-
-	if (ch=='A')
-		printf("\nCOMPRESS:");
-	else
-		printf("\nEXTRACT:");
-
-	printf("\t[%s]  ==>  [%s]  [  ]",rfile,wfile);
-	gotoxy(wherex()-3,wherey());		/* conio.h */
-
-	if (ch=='A')
-		Compress();
-	else
-		Extract();
-
-	printf("ok\n");
-
-	if (ch=='A')
-		unlink(temp);
-	else
+	if (Rfile.seek<0)
 	{
-		unlink(wfile);
-		rename(temp,wfile);
+		lseek(Rfile.fp,Rfile.from,0);	/* io.h */
+		read(Rfile.fp,Rfile.buff,Block);/* io.h */
+
+		Rfile.from+=Block;
+		Rfile.seek=0;
 	}
+
+	ch=Rfile.buff[Rfile.seek];
+	Rfile.seek++;
+
+	return ch;
+}
+
+/*========================================================================*/
+long	ReadLong	()
+{
+	long		l;
+	int		i;
+
+	for (i=0;i<4;i++)
+		((char*)(&l))[i]=ReadByte();
+
+	return l;
+}
+
+/*========================================================================*/
+bool	ResetWfile	(char *wf)
+{
+	if (Wfile.fp)
+		FlushFile();
+
+	CloseFile(Wfile.fp);
+
+	if (SearchFile(wf))
+		Wfile.fp=open(wf,O_RDWR|O_BINARY);
+						/* io.h,fcntl.h */
+	else
+		Wfile.fp=open(wf,O_CREAT|O_BINARY,S_IWRITE);
+						/* io.h,fcntl.h,sys\stat.h */
+	if (Wfile.fp==-1)
+	{
+		Wfile.fp=0;
+		return false;
+	}
+
+	Wfile.len=0L;
+	Wseek(0L);
+
+	return true;
+}
+
+/*========================================================================*/
+bool	Wseek		(long s)
+{
+	Wfile.from=s;
+	Wfile.seek=0;
+
+	return true;
+}
+
+/*========================================================================*/
+bool	WriteByte	(char ch)
+{
+	if (Wfile.seek<0)
+	{
+		lseek(Wfile.fp,Wfile.from,0);	/* io.h */
+		write(Wfile.fp,Wfile.buff,Block);
+						/* io.h */
+
+		Wfile.from+=Block;
+		Wfile.seek=0;
+	}
+
+	Wfile.buff[Wfile.seek]=ch;
+	Wfile.seek++;
+
+	return true;
+}
+
+/*========================================================================*/
+bool	WriteLong	(long l)
+{
+	int		i;
+
+	for (i=0;i<4;i++)
+		WriteByte(((char*)(&l))[i]);
+
+	return true;
+}
+
+/*========================================================================*/
+bool	FlushFile	()
+{
+	if (Wfile.fp && Wfile.seek)
+	{
+		lseek(Wfile.fp,Wfile.from,0);	/* io.h */
+		write(Wfile.fp,Wfile.buff,Wfile.seek);
+						/* io.h */
+	}
+
+	return true;
+}
+
+/*========================================================================*/
+bool	CloseFile	(int fp)
+{
+	if (fp)
+		close(fp);			/* io.h */
+
+	return true;
+}
+
+/*========================================================================*/
+bool	DeleteFile	()
+{
+	FlushFile();
+
+	CloseFile(Rfile.fp);
+	CloseFile(Wfile.fp);
+
+	free (Rfile.buff);			/* alloc.h */
+	free (Wfile.buff);			/* alloc.h */
 
 	return true;
 }
